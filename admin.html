@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="admin-header">
+            <div class="header-content">
+                <h1><i class="fas fa-tachometer-alt"></i> Admin Dashboard</h1>
+                <p>View and manage all applications</p>
+            </div>
+            <a href="index.html" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Application Form
+            </a>
+        </header>
+
+        <div class="admin-controls">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="Search applications...">
+            </div>
+            
+            <div class="filter-section">
+                <select id="statusFilter">
+                    <option value="all">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="reviewed">Reviewed</option>
+                    <option value="accepted">Accepted</option>
+                    <option value="rejected">Rejected</option>
+                </select>
+                
+                <select id="positionFilter">
+                    <option value="all">All Positions</option>
+                    <option value="developer">Software Developer</option>
+                    <option value="designer">UI/UX Designer</option>
+                    <option value="manager">Project Manager</option>
+                    <option value="analyst">Business Analyst</option>
+                </select>
+                
+                <button id="refreshBtn" class="refresh-btn">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+        </div>
+
+        <div class="stats-cards">
+            <div class="stat-card">
+                <div class="stat-icon pending">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-info">
+                    <h3 id="pendingCount">0</h3>
+                    <p>Pending</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon total">
+                    <i class="fas fa-file-alt"></i>
+                </div>
+                <div class="stat-info">
+                    <h3 id="totalCount">0</h3>
+                    <p>Total Applications</p>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon reviewed">
+                    <i class="fas fa-eye"></i>
+                </div>
+                <div class="stat-info">
+                    <h3 id="reviewedCount">0</h3>
+                    <p>Reviewed</p>
+                </div>
+            </div>
+        </div>
+
+        <main>
+            <div class="applications-container">
+                <div class="applications-header">
+                    <h2><i class="fas fa-list"></i> Applications</h2>
+                    <span id="applicationsCount">0 applications</span>
+                </div>
+                
+                <div class="applications-list" id="applicationsList">
+                    <!-- Applications will be dynamically inserted here -->
+                    <div class="no-applications">
+                        <i class="fas fa-inbox"></i>
+                        <h3>No applications yet</h3>
+                        <p>Applications submitted will appear here</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>© 2023 Admin Dashboard. Secure access only.</p>
+        </footer>
+    </div>
+
+    <!-- Application Details Modal -->
+    <div id="applicationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Application Details</h2>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Application details will be inserted here -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn delete-btn">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+                <button class="btn status-btn pending">
+                    <i class="fas fa-clock"></i> Mark as Pending
+                </button>
+                <button class="btn status-btn reviewed">
+                    <i class="fas fa-check"></i> Mark as Reviewed
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Document Viewer Modal -->
+<div id="documentModal" class="document-modal">
+    <div class="document-modal-header">
+        <h2 id="documentModalTitle">Document Viewer</h2>
+        <button class="close-document-modal">&times;</button>
+    </div>
+    <div class="document-modal-body" id="documentViewer">
+        <!-- Document content will be displayed here -->
+    </div>
+    <div class="document-actions-bar">
+        <button id="documentDownloadBtn" class="btn download-btn">
+            <i class="fas fa-download"></i> Download
+        </button>
+        <button class="btn close-document-modal">
+            <i class="fas fa-times"></i> Close
+        </button>
+    </div>
+        <script src="script.js"></script>
+
+</div>
+</body>
+</html>
