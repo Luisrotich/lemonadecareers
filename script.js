@@ -105,8 +105,9 @@ function formatFileSize(bytes) {
 // Application Form Submission - UPDATED TO SEND TO BACKEND
 if (document.getElementById('applicationForm')) {
     const form = document.getElementById('applicationForm');
-    const successMessage = document.getElementById('successMessage');
-    const errorMessage = document.getElementById('errorMessage');
+    
+    // API Base URL - use relative URL since frontend and backend are on same domain
+    const API_BASE_URL = ''; // Empty for same domain, or use full URL if needed
     
     setupFilePreviews();
     
@@ -117,14 +118,14 @@ if (document.getElementById('applicationForm')) {
             // Create FormData object for file upload
             const formData = new FormData();
             
-            // Add form fields (match your backend field names)
+            // Add form fields (match your backend field names from server.js)
             formData.append('name', document.getElementById('fullName').value);
             formData.append('email', document.getElementById('email').value);
             formData.append('phone', document.getElementById('phone').value);
             formData.append('position', document.getElementById('position').value);
             formData.append('cover_letter', document.getElementById('message').value);
             
-            // Add files with correct field names for multer
+            // Add files with correct field names for multer (from your server.js)
             const resumeInput = document.getElementById('resume');
             if (resumeInput.files[0]) {
                 formData.append('resume', resumeInput.files[0]);
@@ -142,8 +143,8 @@ if (document.getElementById('applicationForm')) {
                 }
             }
             
-            // Send to backend
-            const response = await fetch(`${API_BASE_URL}/api/applications`, {
+            // SEND TO BACKEND - THIS IS THE CRITICAL PART
+            const response = await fetch('/api/applications', {
                 method: 'POST',
                 body: formData
                 // Don't set Content-Type header - browser will set it with boundary
@@ -156,7 +157,7 @@ if (document.getElementById('applicationForm')) {
             
             const result = await response.json();
             
-            // Also save to localStorage as backup (optional)
+            // Optional: Save to localStorage as backup
             const backupData = {
                 id: result.id,
                 fullName: document.getElementById('fullName').value,
@@ -171,10 +172,10 @@ if (document.getElementById('applicationForm')) {
                     day: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit'
-                }),
-                documents: [] // Can't store files in localStorage easily
+                })
             };
             
+            // Add to applications array and save to localStorage
             applications.push(backupData);
             localStorage.setItem(STORAGE_KEY, JSON.stringify(applications));
             
@@ -190,10 +191,36 @@ if (document.getElementById('applicationForm')) {
         } catch (error) {
             console.error('Submission error:', error);
             showError(error.message);
+            
+            // Fallback: Save locally if backend fails
+            try {
+                const fallbackData = {
+                    id: Date.now().toString(),
+                    fullName: document.getElementById('fullName').value,
+                    email: document.getElementById('email').value,
+                    phone: document.getElementById('phone').value,
+                    position: document.getElementById('position').value,
+                    message: document.getElementById('message').value,
+                    status: 'pending',
+                    date: new Date().toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }),
+                    documents: []
+                };
+                
+                applications.push(fallbackData);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(applications));
+                showSuccess('Application saved locally (offline mode)');
+            } catch (fallbackError) {
+                showError('Failed to save application');
+            }
         }
     });
 }
-
 // Admin Dashboard Functionality - FETCH FROM BACKEND
 if (document.getElementById('applicationsList')) {
     // DOM Elements
@@ -347,6 +374,51 @@ if (document.getElementById('applicationsList')) {
         });
         
         displayApplications(filteredApplications);
+    }
+    
+    // Add these functions to your admin dashboard section
+
+    // Update application status
+    async function updateApplicationStatus(id, newStatus) {
+        try {
+            const response = await fetch(`/api/applications/${id}/status`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ status: newStatus })
+            });
+            
+            if (!response.ok) throw new Error('Failed to update status');
+            
+            const updatedApp = await response.json();
+            showSuccess('Status updated successfully');
+            loadApplicationsFromBackend(); // Reload the list
+            return updatedApp;
+        } catch (error) {
+            console.error('Error updating status:', error);
+            showError('Failed to update status');
+        }
+    }
+
+    // Delete application
+    async function deleteApplication(id) {
+        if (!confirm('Are you sure you want to delete this application?')) return;
+        
+        try {
+            const response = await fetch(`/api/applications/${id}`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) throw new Error('Failed to delete application');
+            
+            showSuccess('Application deleted successfully');
+            loadApplicationsFromBackend(); // Reload the list
+            applicationModal.style.display = 'none'; // Close modal if open
+        } catch (error) {
+            console.error('Error deleting application:', error);
+            showError('Failed to delete application');
+        }
     }
     
     // Show application details
