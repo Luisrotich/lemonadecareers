@@ -50,6 +50,11 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use('/uploads', express.static('uploads'));
 
+// Add this after your middleware
+const cors = require('cors');
+app.use(cors()); // This allows requests from any origin
+
+
 // Create applications table when server starts
 async function initializeDatabase() {
     try {

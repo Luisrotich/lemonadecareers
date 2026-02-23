@@ -1,10 +1,12 @@
-// Local storage key for applications
+// Local storage key for applications (keep for backup/offline)
 const STORAGE_KEY = 'applications';
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const UPLOADS_FOLDER = 'uploads/';
 
-// Initialize applications array
+// Initialize applications array from localStorage as backup
 let applications = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+
+// API Base URL - change this to your Railway URL
+const API_BASE_URL = 'https://lemonadecareers-production.up.railway.app';
 
 // File preview functionality
 function setupFilePreviews() {
@@ -60,7 +62,6 @@ function previewMultipleFiles(input, previewId) {
     if (input.files && input.files.length > 0) {
         const files = Array.from(input.files);
         
-        // Limit to 3 files
         if (files.length > 3) {
             showError('Maximum 3 additional files allowed');
             input.value = '';
@@ -101,7 +102,7 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Application Form Submission - UPDATED WITH FILE HANDLING
+// Application Form Submission - UPDATED TO SEND TO BACKEND
 if (document.getElementById('applicationForm')) {
     const form = document.getElementById('applicationForm');
     const successMessage = document.getElementById('successMessage');
@@ -113,9 +114,51 @@ if (document.getElementById('applicationForm')) {
         e.preventDefault();
         
         try {
-            // Get form data
-            const formData = {
-                id: Date.now().toString(),
+            // Create FormData object for file upload
+            const formData = new FormData();
+            
+            // Add form fields (match your backend field names)
+            formData.append('name', document.getElementById('fullName').value);
+            formData.append('email', document.getElementById('email').value);
+            formData.append('phone', document.getElementById('phone').value);
+            formData.append('position', document.getElementById('position').value);
+            formData.append('cover_letter', document.getElementById('message').value);
+            
+            // Add files with correct field names for multer
+            const resumeInput = document.getElementById('resume');
+            if (resumeInput.files[0]) {
+                formData.append('resume', resumeInput.files[0]);
+            }
+            
+            const coverLetterInput = document.getElementById('coverLetter');
+            if (coverLetterInput.files[0]) {
+                formData.append('cover_letter_file', coverLetterInput.files[0]);
+            }
+            
+            const additionalDocsInput = document.getElementById('additionalDocs');
+            if (additionalDocsInput.files.length > 0) {
+                for (let i = 0; i < additionalDocsInput.files.length; i++) {
+                    formData.append('additional_docs', additionalDocsInput.files[i]);
+                }
+            }
+            
+            // Send to backend
+            const response = await fetch(`${API_BASE_URL}/api/applications`, {
+                method: 'POST',
+                body: formData
+                // Don't set Content-Type header - browser will set it with boundary
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || 'Failed to submit application');
+            }
+            
+            const result = await response.json();
+            
+            // Also save to localStorage as backup (optional)
+            const backupData = {
+                id: result.id,
                 fullName: document.getElementById('fullName').value,
                 email: document.getElementById('email').value,
                 phone: document.getElementById('phone').value,
@@ -129,17 +172,10 @@ if (document.getElementById('applicationForm')) {
                     hour: '2-digit',
                     minute: '2-digit'
                 }),
-                documents: []
+                documents: [] // Can't store files in localStorage easily
             };
             
-            // Handle file uploads
-            const files = await processFileUploads();
-            formData.documents = files;
-            
-            // Add to applications array
-            applications.push(formData);
-            
-            // Save to local storage
+            applications.push(backupData);
             localStorage.setItem(STORAGE_KEY, JSON.stringify(applications));
             
             // Show success message
@@ -152,69 +188,13 @@ if (document.getElementById('applicationForm')) {
             });
             
         } catch (error) {
+            console.error('Submission error:', error);
             showError(error.message);
         }
     });
-    
-    async function processFileUploads() {
-        const files = [];
-        
-        // Process resume
-        const resumeInput = document.getElementById('resume');
-        if (resumeInput.files[0]) {
-            const resumeFile = await readFileAsDataURL(resumeInput.files[0]);
-            files.push({
-                name: resumeInput.files[0].name,
-                type: resumeInput.files[0].type,
-                size: resumeInput.files[0].size,
-                data: resumeFile,
-                category: 'resume'
-            });
-        }
-        
-        // Process cover letter
-        const coverLetterInput = document.getElementById('coverLetter');
-        if (coverLetterInput.files[0]) {
-            const coverLetterFile = await readFileAsDataURL(coverLetterInput.files[0]);
-            files.push({
-                name: coverLetterInput.files[0].name,
-                type: coverLetterInput.files[0].type,
-                size: coverLetterInput.files[0].size,
-                data: coverLetterFile,
-                category: 'coverLetter'
-            });
-        }
-        
-        // Process additional docs
-        const additionalDocsInput = document.getElementById('additionalDocs');
-        if (additionalDocsInput.files.length > 0) {
-            for (let i = 0; i < additionalDocsInput.files.length; i++) {
-                const file = additionalDocsInput.files[i];
-                const fileData = await readFileAsDataURL(file);
-                files.push({
-                    name: file.name,
-                    type: file.type,
-                    size: file.size,
-                    data: fileData,
-                    category: 'additional'
-                });
-            }
-        }
-        
-        return files;
-    }
-    
-    function readFileAsDataURL(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = (e) => reject(new Error('Error reading file'));
-            reader.readAsDataURL(file);
-        });
-    }
 }
 
-// Admin Dashboard Functionality - UPDATED WITH DOCUMENT VIEWING
+// Admin Dashboard Functionality - FETCH FROM BACKEND
 if (document.getElementById('applicationsList')) {
     // DOM Elements
     const applicationsList = document.getElementById('applicationsList');
@@ -239,20 +219,16 @@ if (document.getElementById('applicationsList')) {
     
     let selectedApplicationId = null;
     let currentDocument = null;
+    let applications = []; // Will be populated from backend
     
     // Load applications on page load
-    loadApplications();
-    updateStats();
+    loadApplicationsFromBackend();
     
     // Event Listeners
-    searchInput.addEventListener('input', filterApplications);
-    statusFilter.addEventListener('change', filterApplications);
-    positionFilter.addEventListener('change', filterApplications);
-    refreshBtn.addEventListener('click', () => {
-        applications = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-        loadApplications();
-        updateStats();
-    });
+    if (searchInput) searchInput.addEventListener('input', filterApplications);
+    if (statusFilter) statusFilter.addEventListener('change', filterApplications);
+    if (positionFilter) positionFilter.addEventListener('change', filterApplications);
+    if (refreshBtn) refreshBtn.addEventListener('click', loadApplicationsFromBackend);
     
     // Close modals
     document.querySelectorAll('.close-modal, .close-document-modal').forEach(btn => {
@@ -279,13 +255,36 @@ if (document.getElementById('applicationsList')) {
     });
     
     // Document download
-    documentDownloadBtn.addEventListener('click', downloadCurrentDocument);
+    if (documentDownloadBtn) {
+        documentDownloadBtn.addEventListener('click', downloadCurrentDocument);
+    }
     
-    // Load applications into the list
-    function loadApplications() {
+    // Load applications from backend
+    async function loadApplicationsFromBackend() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/applications`);
+            if (!response.ok) throw new Error('Failed to fetch applications');
+            
+            applications = await response.json();
+            displayApplications(applications);
+            updateStats();
+        } catch (error) {
+            console.error('Error loading applications:', error);
+            // Fallback to localStorage
+            applications = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+            displayApplications(applications);
+            updateStats();
+            showError('Using local backup - backend connection failed');
+        }
+    }
+    
+    // Display applications
+    function displayApplications(apps) {
+        if (!applicationsList) return;
+        
         applicationsList.innerHTML = '';
         
-        if (applications.length === 0) {
+        if (apps.length === 0) {
             applicationsList.innerHTML = `
                 <div class="no-applications">
                     <i class="fas fa-inbox"></i>
@@ -296,7 +295,7 @@ if (document.getElementById('applicationsList')) {
             return;
         }
         
-        applications.forEach(app => {
+        apps.forEach(app => {
             const positionNames = {
                 'developer': 'Software Developer',
                 'designer': 'UI/UX Designer',
@@ -308,17 +307,16 @@ if (document.getElementById('applicationsList')) {
             applicationItem.className = 'application-item';
             applicationItem.setAttribute('data-id', app.id);
             
-            // Count documents
-            const docCount = app.documents ? app.documents.length : 0;
+            const fileCount = app.files ? app.files.length : 0;
             
             applicationItem.innerHTML = `
                 <div class="application-info">
-                    <h3>${app.fullName}</h3>
+                    <h3>${app.name}</h3>
                     <p>${positionNames[app.position] || app.position} • ${app.email}</p>
-                    <p><small>Applied on: ${app.date} • ${docCount} document${docCount !== 1 ? 's' : ''}</small></p>
+                    <p><small>Applied on: ${new Date(app.created_at).toLocaleDateString()} • ${fileCount} document${fileCount !== 1 ? 's' : ''}</small></p>
                 </div>
-                <div class="application-status status-${app.status}">
-                    ${app.status.charAt(0).toUpperCase() + app.status.slice(1)}
+                <div class="application-status status-${app.status || 'pending'}">
+                    ${(app.status || 'pending').charAt(0).toUpperCase() + (app.status || 'pending').slice(1)}
                 </div>
             `;
             
@@ -326,45 +324,41 @@ if (document.getElementById('applicationsList')) {
             applicationsList.appendChild(applicationItem);
         });
         
-        applicationsCount.textContent = `${applications.length} application${applications.length !== 1 ? 's' : ''}`;
+        if (applicationsCount) {
+            applicationsCount.textContent = `${apps.length} application${apps.length !== 1 ? 's' : ''}`;
+        }
     }
     
-    // Filter applications based on search and filters
+    // Filter applications
     function filterApplications() {
-        const searchTerm = searchInput.value.toLowerCase();
-        const statusValue = statusFilter.value;
-        const positionValue = positionFilter.value;
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const statusValue = statusFilter ? statusFilter.value : 'all';
+        const positionValue = positionFilter ? positionFilter.value : 'all';
         
         const filteredApplications = applications.filter(app => {
-            const matchesSearch = app.fullName.toLowerCase().includes(searchTerm) ||
-                                  app.email.toLowerCase().includes(searchTerm) ||
-                                  app.position.toLowerCase().includes(searchTerm);
+            const matchesSearch = (app.name || '').toLowerCase().includes(searchTerm) ||
+                                  (app.email || '').toLowerCase().includes(searchTerm) ||
+                                  (app.position || '').toLowerCase().includes(searchTerm);
             
-            const matchesStatus = statusValue === 'all' || app.status === statusValue;
+            const matchesStatus = statusValue === 'all' || (app.status || 'pending') === statusValue;
             const matchesPosition = positionValue === 'all' || app.position === positionValue;
             
             return matchesSearch && matchesStatus && matchesPosition;
         });
         
-        displayFilteredApplications(filteredApplications);
+        displayApplications(filteredApplications);
     }
     
-    // Display filtered applications
-    function displayFilteredApplications(filteredApps) {
-        applicationsList.innerHTML = '';
+    // Show application details
+    async function showApplicationDetails(id) {
+        selectedApplicationId = id;
         
-        if (filteredApps.length === 0) {
-            applicationsList.innerHTML = `
-                <div class="no-applications">
-                    <i class="fas fa-search"></i>
-                    <h3>No applications found</h3>
-                    <p>Try adjusting your search or filters</p>
-                </div>
-            `;
-            return;
-        }
-        
-        filteredApps.forEach(app => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/applications/${id}`);
+            if (!response.ok) throw new Error('Failed to fetch application details');
+            
+            const app = await response.json();
+            
             const positionNames = {
                 'developer': 'Software Developer',
                 'designer': 'UI/UX Designer',
@@ -372,132 +366,78 @@ if (document.getElementById('applicationsList')) {
                 'analyst': 'Business Analyst'
             };
             
-            const docCount = app.documents ? app.documents.length : 0;
-            
-            const applicationItem = document.createElement('div');
-            applicationItem.className = 'application-item';
-            applicationItem.setAttribute('data-id', app.id);
-            
-            applicationItem.innerHTML = `
-                <div class="application-info">
-                    <h3>${app.fullName}</h3>
-                    <p>${positionNames[app.position] || app.position} • ${app.email}</p>
-                    <p><small>Applied on: ${app.date} • ${docCount} document${docCount !== 1 ? 's' : ''}</small></p>
-                </div>
-                <div class="application-status status-${app.status}">
-                    ${app.status.charAt(0).toUpperCase() + app.status.slice(1)}
+            modalBody.innerHTML = `
+                <div class="application-details">
+                    <div class="detail-group">
+                        <h4>Personal Information</h4>
+                        <p><strong>Full Name:</strong> ${app.name}</p>
+                        <p><strong>Email:</strong> ${app.email}</p>
+                        <p><strong>Phone:</strong> ${app.phone}</p>
+                    </div>
+                    
+                    <div class="detail-group">
+                        <h4>Application Details</h4>
+                        <p><strong>Position:</strong> ${positionNames[app.position] || app.position}</p>
+                        <p><strong>Status:</strong> <span class="application-status status-${app.status || 'pending'}">${(app.status || 'pending').charAt(0).toUpperCase() + (app.status || 'pending').slice(1)}</span></p>
+                        <p><strong>Applied On:</strong> ${new Date(app.created_at).toLocaleString()}</p>
+                    </div>
+                    
+                    ${app.files && app.files.length > 0 ? `
+                    <div class="detail-group">
+                        <h4>Submitted Documents (${app.files.length})</h4>
+                        <div class="document-viewer" id="documentsContainer">
+                            ${renderDocuments(app.files)}
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    ${app.cover_letter ? `
+                    <div class="detail-group">
+                        <h4>Additional Message</h4>
+                        <div class="message-box">
+                            <p>${app.cover_letter}</p>
+                        </div>
+                    </div>
+                    ` : ''}
                 </div>
             `;
             
-            applicationItem.addEventListener('click', () => showApplicationDetails(app.id));
-            applicationsList.appendChild(applicationItem);
-        });
-    }
-    
-    // Show application details in modal - UPDATED WITH DOCUMENTS
-    function showApplicationDetails(id) {
-        selectedApplicationId = id;
-        const app = applications.find(a => a.id === id);
-        
-        if (!app) return;
-        
-        const positionNames = {
-            'developer': 'Software Developer',
-            'designer': 'UI/UX Designer',
-            'manager': 'Project Manager',
-            'analyst': 'Business Analyst'
-        };
-        
-        modalBody.innerHTML = `
-            <div class="application-details">
-                <div class="detail-group">
-                    <h4>Personal Information</h4>
-                    <p><strong>Full Name:</strong> ${app.fullName}</p>
-                    <p><strong>Email:</strong> ${app.email}</p>
-                    <p><strong>Phone:</strong> ${app.phone}</p>
-                </div>
-                
-                <div class="detail-group">
-                    <h4>Application Details</h4>
-                    <p><strong>Position:</strong> ${positionNames[app.position] || app.position}</p>
-                    <p><strong>Status:</strong> <span class="application-status status-${app.status}">${app.status.charAt(0).toUpperCase() + app.status.slice(1)}</span></p>
-                    <p><strong>Applied On:</strong> ${app.date}</p>
-                </div>
-                
-                ${app.documents && app.documents.length > 0 ? `
-                <div class="detail-group">
-                    <h4>Submitted Documents (${app.documents.length})</h4>
-                    <div class="document-viewer" id="documentsContainer">
-                        ${renderDocuments(app.documents)}
-                    </div>
-                </div>
-                ` : `
-                <div class="detail-group">
-                    <h4>Submitted Documents</h4>
-                    <div class="no-documents">
-                        <i class="fas fa-folder-open"></i>
-                        <p>No documents were submitted</p>
-                    </div>
-                </div>
-                `}
-                
-                ${app.message ? `
-                <div class="detail-group">
-                    <h4>Additional Message</h4>
-                    <div class="message-box">
-                        <p>${app.message}</p>
-                    </div>
-                </div>
-                ` : ''}
-            </div>
-        `;
-        
-        // Add event listeners to document buttons
-        setTimeout(() => {
-            document.querySelectorAll('.document-btn.view').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const docName = e.target.closest('.document-item').dataset.docName;
-                    const doc = app.documents.find(d => d.name === docName);
-                    if (doc) {
-                        viewDocument(doc);
-                    }
+            // Add document event listeners
+            setTimeout(() => {
+                document.querySelectorAll('.document-btn.view').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const docId = e.target.closest('.document-item').dataset.docId;
+                        const doc = app.files.find(f => f.id == docId);
+                        if (doc) {
+                            viewDocument(doc);
+                        }
+                    });
                 });
-            });
+                
+                document.querySelectorAll('.document-btn.download').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const docId = e.target.closest('.document-item').dataset.docId;
+                        const doc = app.files.find(f => f.id == docId);
+                        if (doc) {
+                            downloadDocument(doc);
+                        }
+                    });
+                });
+            }, 100);
             
-            document.querySelectorAll('.document-btn.download').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    const docName = e.target.closest('.document-item').dataset.docName;
-                    const doc = app.documents.find(d => d.name === docName);
-                    if (doc) {
-                        downloadDocument(doc);
-                    }
-                });
-            });
-        }, 100);
-        
-        // Update modal footer buttons
-        const statusBtn = document.querySelector('.status-btn');
-        const deleteBtn = document.querySelector('.delete-btn');
-        
-        statusBtn.textContent = app.status === 'pending' ? 
-            'Mark as Reviewed' : 'Mark as Pending';
-        statusBtn.className = `btn status-btn ${app.status === 'pending' ? 'reviewed' : 'pending'}`;
-        statusBtn.innerHTML = app.status === 'pending' ? 
-            '<i class="fas fa-check"></i> Mark as Reviewed' : 
-            '<i class="fas fa-clock"></i> Mark as Pending';
-        
-        // Add event listeners to modal buttons
-        statusBtn.onclick = () => updateApplicationStatus(id);
-        deleteBtn.onclick = () => deleteApplication(id);
-        
-        applicationModal.style.display = 'flex';
+            applicationModal.style.display = 'flex';
+            
+        } catch (error) {
+            console.error('Error fetching application details:', error);
+            showError('Failed to load application details');
+        }
     }
     
     // Render documents list
     function renderDocuments(documents) {
         let html = '';
         documents.forEach(doc => {
-            const fileExt = doc.name.split('.').pop().toLowerCase();
+            const fileExt = doc.file_name.split('.').pop().toLowerCase();
             let iconClass = 'generic';
             if (fileExt === 'pdf') iconClass = 'pdf';
             else if (['doc', 'docx'].includes(fileExt)) iconClass = 'doc';
@@ -505,15 +445,14 @@ if (document.getElementById('applicationsList')) {
             else if (fileExt === 'txt') iconClass = 'txt';
             
             html += `
-                <div class="document-item" data-doc-name="${doc.name}">
+                <div class="document-item" data-doc-id="${doc.id}">
                     <div class="document-info">
                         <div class="document-icon ${iconClass}">
-                            <i class="${getFileIcon(doc.name)}"></i>
+                            <i class="${getFileIcon(doc.file_name)}"></i>
                         </div>
                         <div class="document-details">
-                            <h4>${doc.name}</h4>
-                            <p>${doc.category === 'resume' ? 'Resume' : 
-                                 doc.category === 'coverLetter' ? 'Cover Letter' : 'Additional Document'} • ${formatFileSize(doc.size)}</p>
+                            <h4>${doc.file_name}</h4>
+                            <p>${doc.category.replace('_', ' ')} • ${formatFileSize(doc.file_size)}</p>
                         </div>
                     </div>
                     <div class="document-actions">
@@ -533,45 +472,24 @@ if (document.getElementById('applicationsList')) {
     // View document
     function viewDocument(doc) {
         currentDocument = doc;
-        documentModalTitle.textContent = doc.name;
+        documentModalTitle.textContent = doc.file_name;
         
-        // Clear previous content
         documentViewer.innerHTML = '';
         
-        // Handle different file types
-        if (doc.type === 'application/pdf' || doc.name.toLowerCase().endsWith('.pdf')) {
-            // PDF viewer
+        const fileUrl = `${API_BASE_URL}/${doc.file_path}`;
+        
+        if (doc.file_type === 'application/pdf' || doc.file_name.toLowerCase().endsWith('.pdf')) {
             const iframe = document.createElement('iframe');
             iframe.className = 'document-iframe';
-            iframe.src = doc.data;
+            iframe.src = fileUrl;
             documentViewer.appendChild(iframe);
-        } else if (doc.type.startsWith('image/')) {
-            // Image viewer
+        } else if (doc.file_type.startsWith('image/')) {
             const img = document.createElement('img');
             img.className = 'image-viewer';
-            img.src = doc.data;
-            img.alt = doc.name;
+            img.src = fileUrl;
+            img.alt = doc.file_name;
             documentViewer.appendChild(img);
-        } else if (doc.type === 'text/plain' || doc.name.toLowerCase().endsWith('.txt')) {
-            // Text viewer
-            const textContainer = document.createElement('div');
-            textContainer.style.whiteSpace = 'pre-wrap';
-            textContainer.style.fontFamily = 'monospace';
-            textContainer.style.padding = '20px';
-            textContainer.style.backgroundColor = '#f8f9fa';
-            textContainer.style.borderRadius = '8px';
-            
-            // Decode base64 text
-            try {
-                const base64Data = doc.data.split(',')[1];
-                const text = atob(base64Data);
-                textContainer.textContent = text;
-            } catch (error) {
-                textContainer.textContent = 'Unable to display file content. Please download the file.';
-            }
-            documentViewer.appendChild(textContainer);
         } else {
-            // Unsupported file type
             const message = document.createElement('div');
             message.className = 'no-documents';
             message.innerHTML = `
@@ -588,18 +506,8 @@ if (document.getElementById('applicationsList')) {
     
     // Download document
     function downloadDocument(doc) {
-        try {
-            const link = document.createElement('a');
-            link.href = doc.data;
-            link.download = doc.name;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showSuccess(`Downloading ${doc.name}...`);
-        } catch (error) {
-            showError('Failed to download file. Please try again.');
-        }
+        const fileUrl = `${API_BASE_URL}/${doc.file_path}`;
+        window.open(fileUrl, '_blank');
     }
     
     // Download current document from modal
@@ -609,35 +517,11 @@ if (document.getElementById('applicationsList')) {
         }
     }
     
-    // Update application status
-    function updateApplicationStatus(id) {
-        const appIndex = applications.findIndex(a => a.id === id);
-        if (appIndex === -1) return;
-        
-        applications[appIndex].status = applications[appIndex].status === 'pending' ? 'reviewed' : 'pending';
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(applications));
-        
-        loadApplications();
-        updateStats();
-        showApplicationDetails(id);
-    }
-    
-    // Delete application
-    function deleteApplication(id) {
-        if (confirm('Are you sure you want to delete this application?')) {
-            applications = applications.filter(a => a.id !== id);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(applications));
-            
-            loadApplications();
-            updateStats();
-            applicationModal.style.display = 'none';
-            showSuccess('Application deleted successfully.');
-        }
-    }
-    
     // Update statistics
     function updateStats() {
-        const pending = applications.filter(app => app.status === 'pending').length;
+        if (!pendingCount || !reviewedCount || !totalCount) return;
+        
+        const pending = applications.filter(app => (app.status || 'pending') === 'pending').length;
         const reviewed = applications.filter(app => app.status === 'reviewed').length;
         const total = applications.length;
         
@@ -651,7 +535,8 @@ if (document.getElementById('applicationsList')) {
 function showSuccess(message) {
     const successMessage = document.getElementById('successMessage');
     if (successMessage) {
-        successMessage.querySelector('p').textContent = message;
+        const msgEl = successMessage.querySelector('p');
+        if (msgEl) msgEl.textContent = message;
         successMessage.style.display = 'flex';
         setTimeout(() => {
             successMessage.style.display = 'none';
@@ -662,7 +547,8 @@ function showSuccess(message) {
 function showError(message) {
     const errorMessage = document.getElementById('errorMessage');
     if (errorMessage) {
-        errorMessage.querySelector('p').textContent = message;
+        const msgEl = errorMessage.querySelector('p');
+        if (msgEl) msgEl.textContent = message;
         errorMessage.style.display = 'flex';
         setTimeout(() => {
             errorMessage.style.display = 'none';
@@ -672,5 +558,5 @@ function showError(message) {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialize any page-specific functionality
+    console.log('Application loaded, API URL:', API_BASE_URL);
 });
